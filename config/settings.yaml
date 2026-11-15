@@ -1,0 +1,46 @@
+# Central config for the LLM test pipeline. Paths are relative to the project root.
+# Generation params are passed straight to chat.completions.create().
+# Set a param to null to omit it.
+
+# Model under test: a local Llama served by Ollama (OpenAI-compatible API).
+#   ollama pull llama3.2      # 3B, ~2 GB, fine on CPU
+#   ollama pull llama3.1      # 8B, ~5 GB, better answers but slow without a GPU
+actor:
+  provider: ollama                 # ollama | openai
+  model: llama3.2
+  base_url: http://localhost:11434/v1
+  requests_per_minute: 0           # local model: no pacing needed
+  timeout_seconds: 180             # CPU inference + first-call model load can be slow
+  use_role_prompt: true            # false = raw LLM testing (no system prompt)
+  system_prompt_file: prompts/actor_system_prompt.txt
+  generation:
+    temperature: 0.1
+    top_p: 0.8
+    # Answers that hit this cap get finish_reason=length and are graded FAIL.
+    max_tokens: 1024
+
+# Grader: OpenAI (needs OPENAI_API_KEY). A different model family from the actor
+# also avoids a model grading its own answers.
+judge:
+  provider: openai
+  model: gpt-4o-mini
+  requests_per_minute: 60          # match your OpenAI tier
+  timeout_seconds: 30
+  prompt_file: prompts/judge_prompt.txt
+  generation:
+    temperature: 0.0
+    # OpenAI reasoning models (o-series, gpt-5): set temperature to null.
+    max_completion_tokens: 512
+
+retry:
+  max_retries: 3
+  backoff_base_seconds: 10         # 10s, 20s, 40s on HTTP 429
+
+paths:
+  test_cases: data/input/test_cases.csv      # .csv or .xlsx
+  responses: data/output/generated_responses.xlsx
+  results: data/output/llm_test_results.xlsx
+
+thresholds:
+  # Notebooks used an absolute "3+ failures"; a rate scales with suite size.
+  fine_tuning_fail_rate: 0.20
